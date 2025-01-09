@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func (cfg apiConfig) ensureAssetsDir() error {
@@ -33,7 +37,26 @@ func getAssetPath(mediaType string) string {
 
 func (cfg apiConfig) getAssetsURL(assetPath string) string {
 	return fmt.Sprintf("http://localhost:%s/assets/%s", cfg.port, assetPath)
+}
 
+func (cfg apiConfig) uploadToS3Bucket(ctx context.Context, mimeType string, file io.Reader) (string, error) {
+	randomBytes := make([]byte, 32)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return "", err
+	}
+	ext := getExtensionFromMediaPath(mimeType)
+	filename := fmt.Sprintf("%s%s", base64.RawURLEncoding.EncodeToString(randomBytes), ext)
+	_, err = cfg.s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      &cfg.s3Bucket,
+		Key:         &filename,
+		Body:        file,
+		ContentType: &mimeType,
+	})
+	return filename, nil
+}
+func (cfg apiConfig) getS3Url(key string) string {
+	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
 }
 
 func getExtensionFromMediaPath(mediaType string) string {
