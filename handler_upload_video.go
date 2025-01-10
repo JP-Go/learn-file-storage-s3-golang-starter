@@ -68,16 +68,34 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create file.", err)
 		return
 	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
 	io.Copy(tempFile, file)
 	tempFile.Seek(0, io.SeekStart)
-	key, err := cfg.uploadToS3Bucket(r.Context(), mediaType, tempFile)
+	aspectRatio, err := getAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't determine aspect ratio", err)
+		return
+	}
+	newFilePath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to preprocess the video", err)
+		return
+	}
+	tempFile.Close()
+	os.Remove(tempFile.Name())
+	processedFile, err := os.Open(newFilePath)
+	defer os.Remove(processedFile.Name())
+	defer processedFile.Close()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to preprocess the video", err)
+		return
+	}
+
+	key, err := cfg.uploadToS3Bucket(r.Context(), mediaType, aspectRatio, processedFile)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't upload file. Try again later", err)
 		return
 	}
-	videoURL := cfg.getS3Url(key)
+	videoURL := cfg.getS3BucketKeyPair(key)
 	video.VideoURL = &videoURL
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
@@ -85,5 +103,10 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	log.Printf("Uploaded video with id %s to S3 at %s", video.ID, *video.VideoURL)
+	video, err = cfg.dbVideoToSignedVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't sign video URL. Report to admin.", err)
+		return
+	}
 	respondWithJSON(w, http.StatusAccepted, video)
 }
