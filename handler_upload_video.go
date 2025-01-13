@@ -95,7 +95,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't upload file. Try again later", err)
 		return
 	}
-	videoURL := cfg.getS3BucketKeyPair(key)
+	videoURL := cfg.getCloudfrontUrl(key)
 	video.VideoURL = &videoURL
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
@@ -103,10 +103,5 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	log.Printf("Uploaded video with id %s to S3 at %s", video.ID, *video.VideoURL)
-	video, err = cfg.dbVideoToSignedVideo(video)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't sign video URL. Report to admin.", err)
-		return
-	}
 	respondWithJSON(w, http.StatusAccepted, video)
 }
